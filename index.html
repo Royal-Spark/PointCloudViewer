@@ -1,0 +1,1925 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+    <meta name="mobile-web-app-capable" content="yes">
+    <title>Point Cloud Viewer</title>
+
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+
+    <style>
+        * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+        body {
+            margin: 0;
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+            background: #0d0d0d;
+            color: #fff;
+            overflow: hidden;
+            height: 100vh;
+            height: -webkit-fill-available;
+            display: flex;
+            touch-action: manipulation;
+        }
+
+        #sidebar {
+            width: 340px;
+            min-width: 340px;
+            background: #1a1a1a;
+            border-right: 1px solid #333;
+            display: flex;
+            flex-direction: column;
+            z-index: 100;
+            transition: transform 0.3s ease, opacity 0.3s ease;
+        }
+
+        #sidebar.hidden {
+            transform: translateX(-100%);
+            position: absolute;
+            left: 0;
+            top: 0;
+            bottom: 0;
+            opacity: 0;
+            pointer-events: none;
+        }
+
+        .header {
+            padding: 15px;
+            border-bottom: 1px solid #333;
+            background: #222;
+            display: flex;
+            align-items: center;
+            gap: 12px;
+        }
+        .header h3 { margin: 0; font-size: 15px; color: #00e676; letter-spacing: 0.5px; flex: 1; }
+
+        #hamburger {
+            position: fixed;
+            top: 12px;
+            left: 12px;
+            z-index: 2000;
+            width: 44px;
+            height: 44px;
+            background: #222;
+            border: 1px solid #444;
+            border-radius: 8px;
+            cursor: pointer;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            gap: 5px;
+            transition: background 0.2s;
+        }
+        #hamburger:hover, #hamburger:active { background: #333; }
+        #hamburger span {
+            display: block;
+            width: 22px;
+            height: 2px;
+            background: #00e676;
+            border-radius: 1px;
+            transition: transform 0.3s, opacity 0.3s;
+        }
+        #hamburger.open span:nth-child(1) { transform: rotate(45deg) translate(5px, 5px); }
+        #hamburger.open span:nth-child(2) { opacity: 0; }
+        #hamburger.open span:nth-child(3) { transform: rotate(-45deg) translate(5px, -5px); }
+
+        .drop-zone {
+            margin: 15px;
+            padding: 20px;
+            border: 2px dashed #444;
+            border-radius: 8px;
+            text-align: center;
+            cursor: pointer;
+            transition: 0.2s;
+            background: #222;
+        }
+        .drop-zone:hover, .drop-zone:active, .drop-zone.active { border-color: #00e676; background: #1b3a29; }
+        .drop-zone p { margin: 0; font-size: 12px; color: #aaa; pointer-events: none; }
+        .drop-zone.loaded { border-style: solid; border-color: #00e676; }
+
+        #data-panel { padding: 15px; border-top: 1px solid #333; background: #222; display: none; }
+        .data-row { display: flex; justify-content: space-between; margin-bottom: 6px; font-size: 13px; }
+        .label { color: #888; font-size: 11px; text-transform: uppercase; font-weight: bold; }
+        .value { font-family: monospace; color: #fff; text-align: right; }
+        .highlight { color: #00e676; }
+
+        #las-info { padding: 10px 15px; background: #1a2a1a; border-top: 1px solid #333; display: none; font-size: 11px; }
+        #las-info .info-row { display: flex; justify-content: space-between; margin: 3px 0; }
+        #las-info .info-label { color: #666; }
+        #las-info .info-value { color: #00e676; font-family: monospace; }
+
+        #preview-box {
+            height: 180px;
+            background: #000;
+            margin: 0 15px 15px 15px;
+            display: none;
+            align-items: center;
+            justify-content: center;
+            border: 1px solid #333;
+            border-radius: 4px;
+            overflow: hidden;
+        }
+        #preview-img, #preview-vid { max-width: 100%; max-height: 100%; }
+
+        #file-list { flex: 1; overflow-y: auto; padding: 0; margin: 0; list-style: none; -webkit-overflow-scrolling: touch; }
+        #file-list li {
+            padding: 12px 15px;
+            border-bottom: 1px solid #2a2a2a;
+            cursor: pointer;
+            font-size: 12px;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+        #file-list li:hover, #file-list li:active { background: #333; }
+        #file-list li.selected { background: #00e676; color: #000; font-weight: bold; }
+        #file-list li input[type="checkbox"] {
+            cursor: pointer;
+            width: 20px;
+            height: 20px;
+            flex-shrink: 0;
+        }
+        #file-list li .filename { flex: 1; overflow: hidden; text-overflow: ellipsis; }
+
+        #select-all-container {
+            padding: 10px 15px;
+            border-bottom: 1px solid #333;
+            background: #222;
+            display: none;
+        }
+        #select-all-container button {
+            background: #333;
+            border: 1px solid #444;
+            color: #aaa;
+            padding: 8px 14px;
+            cursor: pointer;
+            font-size: 12px;
+            border-radius: 4px;
+            margin-right: 8px;
+        }
+        #select-all-container button:hover, #select-all-container button:active { background: #444; color: #fff; }
+        #select-all-container span { font-size: 11px; color: #888; }
+
+        #viewport { flex: 1; position: relative; background: #111; }
+        #map, #view-3d { width: 100%; height: 100%; position: absolute; top: 0; left: 0; }
+        #view-3d { display: none; }
+
+        #mode-toggle {
+            position: absolute;
+            top: 12px;
+            right: 12px;
+            z-index: 1000;
+            background: #222;
+            border: 1px solid #444;
+            border-radius: 8px;
+            display: flex;
+        }
+        #mode-toggle button {
+            background: none;
+            border: none;
+            color: #aaa;
+            padding: 10px 16px;
+            cursor: pointer;
+            font-weight: bold;
+            font-size: 12px;
+        }
+        #mode-toggle button.active { background: #00e676; color: #000; border-radius: 6px; }
+
+        #render-controls {
+            position: absolute;
+            top: 60px;
+            right: 12px;
+            z-index: 1000;
+            background: #222;
+            border: 1px solid #444;
+            border-radius: 8px;
+            padding: 12px;
+            display: none;
+            min-width: 200px;
+            max-height: calc(100vh - 100px);
+            overflow-y: auto;
+            -webkit-overflow-scrolling: touch;
+        }
+        #render-controls label {
+            display: block;
+            font-size: 11px;
+            color: #aaa;
+            margin-bottom: 10px;
+            cursor: pointer;
+        }
+        #render-controls input[type="checkbox"] { margin-right: 8px; width: 18px; height: 18px; vertical-align: middle; }
+        #render-controls input[type="range"] { width: 100%; margin-top: 5px; }
+        #render-controls .section { margin-top: 12px; padding-top: 12px; border-top: 1px solid #444; }
+        #render-controls .section-title { color: #00e676; font-weight: bold; margin-bottom: 8px; font-size: 11px; }
+
+        #loading {
+            position: absolute;
+            bottom: 20px;
+            left: 50%;
+            transform: translateX(-50%);
+            background: rgba(0,0,0,0.9);
+            padding: 12px 24px;
+            border-radius: 24px;
+            font-size: 12px;
+            color: #00e676;
+            display: none;
+            z-index: 2000;
+            pointer-events: none;
+            border: 1px solid #00e676;
+        }
+
+        .directional-marker {
+            background: transparent !important;
+            border: none !important;
+        }
+
+        .marker-popup { text-align: center; }
+        .marker-popup img {
+            max-width: 150px;
+            max-height: 100px;
+            border-radius: 4px;
+            cursor: pointer;
+            margin-top: 5px;
+            border: 2px solid #333;
+        }
+        .marker-popup img:hover { border-color: #00e676; }
+        .marker-popup .popup-title { font-weight: bold; margin-bottom: 3px; }
+        .marker-popup .popup-info { font-size: 11px; color: #666; }
+
+        #image-modal {
+            display: none;
+            position: fixed;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background: rgba(0,0,0,0.95);
+            z-index: 10000;
+            align-items: center;
+            justify-content: center;
+            cursor: pointer;
+        }
+        #image-modal.visible { display: flex; }
+        #image-modal img {
+            max-width: 95vw;
+            max-height: 90vh;
+            border-radius: 8px;
+            box-shadow: 0 0 50px rgba(0,0,0,0.5);
+        }
+        #image-modal .modal-info {
+            position: absolute;
+            bottom: 20px;
+            left: 50%;
+            transform: translateX(-50%);
+            background: rgba(0,0,0,0.8);
+            padding: 12px 24px;
+            border-radius: 24px;
+            color: #fff;
+            font-size: 13px;
+            text-align: center;
+        }
+        #image-modal .close-hint {
+            position: absolute;
+            top: 20px;
+            right: 20px;
+            color: #888;
+            font-size: 12px;
+        }
+
+        #popup-3d {
+            display: none;
+            position: absolute;
+            z-index: 1500;
+            background: #222;
+            border: 1px solid #444;
+            border-radius: 8px;
+            padding: 12px;
+            text-align: center;
+            pointer-events: auto;
+            box-shadow: 0 4px 20px rgba(0,0,0,0.5);
+        }
+        #popup-3d.visible { display: block; }
+        #popup-3d img {
+            max-width: 200px;
+            max-height: 150px;
+            border-radius: 4px;
+            cursor: pointer;
+            border: 2px solid #333;
+        }
+        #popup-3d img:hover { border-color: #00e676; }
+        #popup-3d .popup-title { color: #fff; font-weight: bold; margin-bottom: 5px; font-size: 12px; }
+        #popup-3d .popup-info { color: #aaa; font-size: 11px; margin-top: 5px; }
+        #popup-3d .close-btn {
+            position: absolute;
+            top: 5px;
+            right: 8px;
+            color: #888;
+            cursor: pointer;
+            font-size: 18px;
+            padding: 4px;
+        }
+        #popup-3d .close-btn:hover { color: #fff; }
+
+        @media (max-width: 768px) {
+            #sidebar {
+                position: fixed;
+                left: 0;
+                top: 0;
+                bottom: 0;
+                width: 85vw;
+                max-width: 340px;
+                box-shadow: 4px 0 20px rgba(0,0,0,0.5);
+            }
+            #sidebar.hidden {
+                transform: translateX(-100%);
+            }
+            #viewport {
+                width: 100%;
+            }
+            #render-controls {
+                max-width: calc(100vw - 80px);
+                right: 8px;
+            }
+            #mode-toggle {
+                right: 8px;
+                top: 8px;
+            }
+        }
+    </style>
+</head>
+<body>
+
+<button id="hamburger" class="open" aria-label="Toggle sidebar">
+    <span></span>
+    <span></span>
+    <span></span>
+</button>
+
+<div id="sidebar">
+    <div class="header">
+        <h3>POINT CLOUD VIEWER</h3>
+    </div>
+
+    <div id="drop-media" class="drop-zone">
+        <p>DROP IMAGES / VIDEO</p>
+        <input type="file" id="input-media" multiple accept=".jpg,.jpeg,.mp4,.mov" hidden>
+    </div>
+
+    <div id="drop-las" class="drop-zone">
+        <p>DROP LAS POINT CLOUD</p>
+        <input type="file" id="input-las" accept=".las" hidden>
+    </div>
+
+    <div id="las-info">
+        <div class="info-row"><span class="info-label">Format:</span><span class="info-value" id="las-format">-</span></div>
+        <div class="info-row"><span class="info-label">Points:</span><span class="info-value" id="las-points">-</span></div>
+        <div class="info-row"><span class="info-label">Has RGB:</span><span class="info-value" id="las-rgb">-</span></div>
+        <div class="info-row"><span class="info-label">Bounds X:</span><span class="info-value" id="las-bounds-x">-</span></div>
+        <div class="info-row"><span class="info-label">Bounds Y:</span><span class="info-value" id="las-bounds-y">-</span></div>
+        <div class="info-row"><span class="info-label">Bounds Z:</span><span class="info-value" id="las-bounds-z">-</span></div>
+    </div>
+
+    <div id="select-all-container">
+        <button id="btn-select-all">Select All</button>
+        <button id="btn-select-none">Clear All</button>
+        <span id="selected-count">0 selected</span>
+    </div>
+
+    <ul id="file-list"></ul>
+
+    <div id="preview-box">
+        <img id="preview-img">
+        <video id="preview-vid" controls muted playsinline style="display:none"></video>
+    </div>
+
+    <div id="data-panel">
+        <div class="data-row"><span class="label">Name</span> <span id="val-name" class="value">-</span></div>
+        <div class="data-row"><span class="label">GPS</span> <span id="val-gps" class="value">-</span></div>
+        <div class="data-row"><span class="label">Altitude (GPS)</span> <span id="val-alt-gps" class="value highlight">-</span></div>
+        <div class="data-row"><span class="label">Altitude (Rel)</span> <span id="val-alt-rel" class="value highlight">-</span></div>
+        <div class="data-row"><span class="label">Yaw</span> <span id="val-yaw" class="value highlight">-</span></div>
+        <div class="data-row"><span class="label">Pitch</span> <span id="val-pitch" class="value highlight">-</span></div>
+        <div class="data-row"><span class="label">Roll</span> <span id="val-roll" class="value highlight">-</span></div>
+        <div class="data-row"><span class="label">Camera</span> <span id="val-camera" class="value">-</span></div>
+    </div>
+</div>
+
+<div id="viewport">
+    <div id="mode-toggle">
+        <button id="btn-2d" class="active" onclick="setMode('2d')">2D MAP</button>
+        <button id="btn-3d" onclick="setMode('3d')">3D CLOUD</button>
+    </div>
+
+    <div id="render-controls">
+        <div class="section-title">POINT CLOUD</div>
+        <label><input type="checkbox" id="chk-white-points"> White Points</label>
+        <label><input type="checkbox" id="chk-intensity"> Use Intensity (if no RGB)</label>
+        <label>
+            Point Size: <span id="point-size-val">0.05</span>
+            <input type="range" id="point-size" min="0.05" max="3" step="0.1" value="0.05">
+        </label>
+
+        <div class="section">
+            <div class="section-title">SCENE</div>
+            <label><input type="checkbox" id="chk-dark-bg" checked> Dark Background</label>
+            <label><input type="checkbox" id="chk-grid"> Show Grid</label>
+            <label><input type="checkbox" id="chk-axes" checked> Show Axes</label>
+        </div>
+
+        <div class="section">
+            <div class="section-title">CAMERA MARKER</div>
+            <label><input type="checkbox" id="chk-camera" checked> Show Camera Position</label>
+            <label>
+                Marker Size: <span id="cam-size-val">1</span>
+                <input type="range" id="cam-size" min="0.25" max="5" step="0.25" value="1">
+            </label>
+        </div>
+
+        <div class="section">
+            <div class="section-title">FOV CONE</div>
+            <label><input type="checkbox" id="chk-fov-cone"> Show FOV Cone</label>
+            <label><input type="checkbox" id="chk-fov-highlight"> Highlight Points in FOV</label>
+            <label>
+                Cone Distance: <span id="fov-dist-val">5</span>
+                <input type="range" id="fov-distance" min="5" max="200" step="5" value="5">
+            </label>
+        </div>
+    </div>
+
+    <div id="map"></div>
+    <div id="view-3d"></div>
+    <div id="loading">PROCESSING...</div>
+    <div id="popup-3d">
+        <span class="close-btn">&times;</span>
+        <div class="popup-title"></div>
+        <img src="">
+        <div class="popup-info"></div>
+    </div>
+</div>
+
+<div id="image-modal">
+    <span class="close-hint">Tap to close</span>
+    <img src="">
+    <div class="modal-info"></div>
+</div>
+
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+
+<script type="importmap">
+{
+    "imports": {
+        "three": "https://unpkg.com/three@0.160.0/build/three.module.js",
+        "three/addons/": "https://unpkg.com/three@0.160.0/examples/jsm/"
+    }
+}
+</script>
+
+<script type="module">
+import * as THREE from 'three';
+import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+
+const STATE = {
+    files: [],
+    meta: [],
+    fileUrls: [],
+    currentIdx: -1,
+    selectedIndices: new Set(),
+    mode: '2d',
+    las: {
+        loaded: false,
+        minX: 0, maxX: 0,
+        minY: 0, maxY: 0,
+        minZ: 0, maxZ: 0,
+        centerX: 0, centerY: 0, centerZ: 0,
+        originLat: null,
+        originLon: null,
+        originAlt: null
+    },
+    pointColors: null,
+    originalColors: null,
+    useWhitePoints: false,
+    cameraMarkers: [],
+    fovCones: [],
+    fov: { hfov: 84, vfov: 53 }
+};
+
+let raycaster, mouse;
+let activePopupMarker = null;
+
+// Hamburger menu toggle
+const hamburger = document.getElementById('hamburger');
+const sidebar = document.getElementById('sidebar');
+
+hamburger.addEventListener('click', () => {
+    hamburger.classList.toggle('open');
+    sidebar.classList.toggle('hidden');
+});
+
+// Leaflet map
+const map = L.map('map', { maxZoom: 24 }).setView([0, 0], 2);
+L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}', {
+    attribution: 'Esri',
+    maxNativeZoom: 19,
+    maxZoom: 24
+}).addTo(map);
+let mapMarkers = [];
+
+function createDirectionalIcon(yaw, isHighlighted) {
+    const rotation = yaw ?? 0;
+    const color = isHighlighted ? '#00e676' : '#ff6600';
+    const borderColor = '#ffffff';
+
+    const svg = `
+        <svg width="32" height="32" viewBox="0 0 32 32" xmlns="http://www.w3.org/2000/svg">
+            <g transform="rotate(${rotation}, 16, 16)">
+                <polygon points="16,2 24,26 16,20 8,26" fill="${color}" stroke="${borderColor}" stroke-width="2"/>
+            </g>
+            <circle cx="16" cy="16" r="4" fill="${borderColor}"/>
+        </svg>
+    `;
+
+    return L.divIcon({
+        html: svg,
+        className: 'directional-marker',
+        iconSize: [32, 32],
+        iconAnchor: [16, 16]
+    });
+}
+
+function updateMapMarkers() {
+    mapMarkers.forEach(m => map.removeLayer(m));
+    mapMarkers = [];
+
+    if (STATE.selectedIndices.size === 0) return;
+
+    const bounds = [];
+
+    STATE.selectedIndices.forEach(idx => {
+        const meta = STATE.meta[idx];
+        if (!meta || meta.lat === null) return;
+
+        const isHighlighted = (idx === STATE.currentIdx);
+        const icon = createDirectionalIcon(meta.yaw, isHighlighted);
+        const file = STATE.files[idx];
+        const isVideo = file.name.match(/\.(mp4|mov)$/i);
+
+        const popupContent = `
+            <div class="marker-popup">
+                <div class="popup-title">${file.name}</div>
+                ${!isVideo && STATE.fileUrls[idx] ?
+                    `<img src="${STATE.fileUrls[idx]}" onclick="window.openImageModal(${idx})" alt="thumbnail">` :
+                    '<div class="popup-info">[Video file]</div>'}
+                <div class="popup-info">
+                    Yaw: ${meta.yaw?.toFixed(1) ?? 'N/A'}° |
+                    Pitch: ${meta.pitch?.toFixed(1) ?? 'N/A'}°
+                </div>
+            </div>
+        `;
+
+        const marker = L.marker([meta.lat, meta.lon], { icon })
+            .addTo(map)
+            .bindPopup(popupContent, { maxWidth: 200 });
+
+        mapMarkers.push(marker);
+        bounds.push([meta.lat, meta.lon]);
+    });
+
+    if (bounds.length > 1) {
+        map.fitBounds(bounds, { padding: [50, 50], maxZoom: 20 });
+    } else if (bounds.length === 1) {
+        map.setView(bounds[0], Math.max(map.getZoom(), 18));
+    }
+}
+
+window.openImageModal = function(idx) {
+    const modal = document.getElementById('image-modal');
+    const img = modal.querySelector('img');
+    const info = modal.querySelector('.modal-info');
+    const file = STATE.files[idx];
+    const meta = STATE.meta[idx];
+
+    img.src = STATE.fileUrls[idx];
+    info.innerHTML = `<b>${file.name}</b><br>Yaw: ${meta.yaw?.toFixed(1) ?? 'N/A'}° | Pitch: ${meta.pitch?.toFixed(1) ?? 'N/A'}° | Alt: ${meta.altRel?.toFixed(1) ?? 'N/A'}m`;
+    modal.classList.add('visible');
+};
+
+document.getElementById('image-modal').addEventListener('click', function() {
+    this.classList.remove('visible');
+});
+
+function on3DClick(event) {
+    if (!raycaster || !camera || STATE.cameraMarkers.length === 0) return;
+
+    const rect = renderer.domElement.getBoundingClientRect();
+    mouse.x = ((event.clientX - rect.left) / rect.width) * 2 - 1;
+    mouse.y = -((event.clientY - rect.top) / rect.height) * 2 + 1;
+
+    raycaster.setFromCamera(mouse, camera);
+
+    for (const marker of STATE.cameraMarkers) {
+        const meshes = [];
+        marker.traverse(child => {
+            if (child.isMesh) meshes.push(child);
+        });
+
+        const intersects = raycaster.intersectObjects(meshes);
+        if (intersects.length > 0) {
+            const idx = marker.userData.fileIndex;
+            if (idx !== undefined) {
+                show3DPopup(idx, event.clientX, event.clientY, marker);
+                return;
+            }
+        }
+    }
+
+    hide3DPopup();
+}
+
+function show3DPopup(idx, x, y, marker) {
+    const popup = document.getElementById('popup-3d');
+    const file = STATE.files[idx];
+    const meta = STATE.meta[idx];
+    const isVideo = file.name.match(/\.(mp4|mov)$/i);
+
+    popup.querySelector('.popup-title').textContent = file.name;
+    popup.querySelector('.popup-info').innerHTML =
+        `Yaw: ${meta.yaw?.toFixed(1) ?? 'N/A'}° | Pitch: ${meta.pitch?.toFixed(1) ?? 'N/A'}°<br>Alt: ${meta.altRel?.toFixed(1) ?? 'N/A'}m`;
+
+    const img = popup.querySelector('img');
+    if (!isVideo && STATE.fileUrls[idx]) {
+        img.src = STATE.fileUrls[idx];
+        img.style.display = 'block';
+        img.onclick = () => window.openImageModal(idx);
+    } else {
+        img.style.display = 'none';
+    }
+
+    activePopupMarker = marker;
+    positionPopupFromMarker();
+    popup.classList.add('visible');
+}
+
+function hide3DPopup() {
+    document.getElementById('popup-3d').classList.remove('visible');
+    activePopupMarker = null;
+}
+
+function update3DPopupPosition() {
+    if (!activePopupMarker || !camera || !renderer) return;
+
+    const popup = document.getElementById('popup-3d');
+    if (!popup.classList.contains('visible')) return;
+
+    positionPopupFromMarker();
+}
+
+function positionPopupFromMarker() {
+    if (!activePopupMarker) return;
+
+    const popup = document.getElementById('popup-3d');
+    const viewport = document.getElementById('viewport');
+    const vRect = viewport.getBoundingClientRect();
+
+    const markerPos = new THREE.Vector3();
+    activePopupMarker.getWorldPosition(markerPos);
+
+    const screenPos = markerPos.clone().project(camera);
+
+    const x = (screenPos.x * 0.5 + 0.5) * renderer.domElement.clientWidth;
+    const y = (-screenPos.y * 0.5 + 0.5) * renderer.domElement.clientHeight;
+
+    if (screenPos.z > 1) {
+        popup.style.opacity = '0';
+        return;
+    }
+    popup.style.opacity = '1';
+
+    let popX = x + 20;
+    let popY = y - 50;
+
+    const popWidth = popup.offsetWidth || 220;
+    const popHeight = popup.offsetHeight || 200;
+
+    if (popX + popWidth > vRect.width) popX = x - popWidth - 20;
+    if (popY < 10) popY = 10;
+    if (popY + popHeight > vRect.height) popY = vRect.height - popHeight - 10;
+    if (popX < 10) popX = 10;
+
+    popup.style.left = popX + 'px';
+    popup.style.top = popY + 'px';
+}
+
+document.querySelector('#popup-3d .close-btn').addEventListener('click', (e) => {
+    e.stopPropagation();
+    hide3DPopup();
+});
+
+let scene, camera, renderer, controls, cloudPoints, camCone, gridHelper, axesHelper;
+const view3d = document.getElementById('view-3d');
+
+function init3D() {
+    if (scene) return;
+
+    scene = new THREE.Scene();
+    scene.background = new THREE.Color(0x1a1a1a);
+
+    camera = new THREE.PerspectiveCamera(60, view3d.clientWidth / view3d.clientHeight, 0.1, 50000);
+    camera.position.set(50, 50, 50);
+
+    renderer = new THREE.WebGLRenderer({ antialias: true });
+    renderer.setSize(view3d.clientWidth, view3d.clientHeight);
+    renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+    view3d.appendChild(renderer.domElement);
+
+    controls = new OrbitControls(camera, renderer.domElement);
+    controls.enableDamping = true;
+    controls.dampingFactor = 0.05;
+    controls.touches = { ONE: THREE.TOUCH.ROTATE, TWO: THREE.TOUCH.DOLLY_PAN };
+
+    gridHelper = new THREE.GridHelper(200, 20, 0x444444, 0x222222);
+    gridHelper.visible = false;
+    scene.add(gridHelper);
+
+    axesHelper = new THREE.AxesHelper(10);
+    scene.add(axesHelper);
+
+    createCameraMarker(5);
+
+    raycaster = new THREE.Raycaster();
+    mouse = new THREE.Vector2();
+
+    renderer.domElement.addEventListener('click', on3DClick);
+
+    const animate = () => {
+        requestAnimationFrame(animate);
+        controls.update();
+        renderer.render(scene, camera);
+        update3DPopupPosition();
+    };
+    animate();
+
+    window.addEventListener('resize', () => {
+        if (view3d.clientWidth && view3d.clientHeight) {
+            camera.aspect = view3d.clientWidth / view3d.clientHeight;
+            camera.updateProjectionMatrix();
+            renderer.setSize(view3d.clientWidth, view3d.clientHeight);
+        }
+    });
+
+    setupRenderControls();
+}
+
+function createCameraMarker(size) {
+    if (camCone) {
+        scene.remove(camCone);
+        camCone.traverse(child => {
+            if (child.geometry) child.geometry.dispose();
+            if (child.material) child.material.dispose();
+        });
+    }
+
+    camCone = new THREE.Group();
+
+    const headGeo = new THREE.ConeGeometry(size * 0.5, size * 1.5, 8);
+    const headMat = new THREE.MeshBasicMaterial({ color: 0xff0000 });
+    const head = new THREE.Mesh(headGeo, headMat);
+    head.rotation.x = Math.PI / 2;
+    head.position.z = -size * 0.75;
+    camCone.add(head);
+
+    const shaftGeo = new THREE.CylinderGeometry(size * 0.15, size * 0.15, size * 3, 8);
+    const shaftMat = new THREE.MeshBasicMaterial({ color: 0x00e676 });
+    const shaft = new THREE.Mesh(shaftGeo, shaftMat);
+    shaft.rotation.x = Math.PI / 2;
+    shaft.position.z = -size * 1.5 - size * 0.75;
+    camCone.add(shaft);
+
+    const sphereGeo = new THREE.SphereGeometry(size * 0.3, 12, 12);
+    const sphereMat = new THREE.MeshBasicMaterial({ color: 0xffff00 });
+    const sphere = new THREE.Mesh(sphereGeo, sphereMat);
+    camCone.add(sphere);
+
+    camCone.visible = false;
+    scene.add(camCone);
+}
+
+function setupRenderControls() {
+    const chkWhite = document.getElementById('chk-white-points');
+    const chkDarkBg = document.getElementById('chk-dark-bg');
+    const chkGrid = document.getElementById('chk-grid');
+    const chkAxes = document.getElementById('chk-axes');
+    const chkCamera = document.getElementById('chk-camera');
+    const pointSizeSlider = document.getElementById('point-size');
+    const camSizeSlider = document.getElementById('cam-size');
+
+    chkWhite.addEventListener('change', () => {
+        STATE.useWhitePoints = chkWhite.checked;
+        updatePointCloudColors();
+    });
+
+    chkDarkBg.addEventListener('change', () => {
+        scene.background = new THREE.Color(chkDarkBg.checked ? 0x1a1a1a : 0x666666);
+    });
+
+    chkGrid.addEventListener('change', () => {
+        if (gridHelper) gridHelper.visible = chkGrid.checked;
+    });
+
+    chkAxes.addEventListener('change', () => {
+        if (axesHelper) axesHelper.visible = chkAxes.checked;
+    });
+
+    chkCamera.addEventListener('change', () => {
+        updateAllCameraMarkers();
+    });
+
+    pointSizeSlider.addEventListener('input', () => {
+        document.getElementById('point-size-val').textContent = pointSizeSlider.value;
+        if (cloudPoints) {
+            cloudPoints.material.size = parseFloat(pointSizeSlider.value);
+        }
+    });
+
+    camSizeSlider.addEventListener('input', () => {
+        document.getElementById('cam-size-val').textContent = camSizeSlider.value;
+        updateAllCameraMarkers();
+    });
+
+    const chkFOVCone = document.getElementById('chk-fov-cone');
+    const chkFOVHighlight = document.getElementById('chk-fov-highlight');
+    const fovDistSlider = document.getElementById('fov-distance');
+
+    chkFOVCone.addEventListener('change', () => {
+        updateFOVCones();
+    });
+
+    chkFOVHighlight.addEventListener('change', () => {
+        updateFOVHighlighting();
+    });
+
+    fovDistSlider.addEventListener('input', () => {
+        document.getElementById('fov-dist-val').textContent = fovDistSlider.value;
+        updateFOVCones();
+    });
+}
+
+function updatePointCloudColors() {
+    if (!cloudPoints || !STATE.originalColors) return;
+
+    const colorAttr = cloudPoints.geometry.getAttribute('color');
+
+    if (STATE.useWhitePoints) {
+        for (let i = 0; i < colorAttr.count; i++) {
+            colorAttr.setXYZ(i, 1, 1, 1);
+        }
+    } else {
+        for (let i = 0; i < STATE.originalColors.length; i += 3) {
+            colorAttr.setXYZ(i / 3, STATE.originalColors[i], STATE.originalColors[i+1], STATE.originalColors[i+2]);
+        }
+    }
+    colorAttr.needsUpdate = true;
+
+    if (document.getElementById('chk-fov-highlight')?.checked) {
+        updateFOVHighlighting();
+    }
+}
+
+async function extractMetadata(file) {
+    return new Promise((resolve) => {
+        const result = {
+            lat: null, lon: null,
+            altGps: null, altRel: null, altAbs: null,
+            yaw: null, pitch: null, roll: null,
+            camera: null
+        };
+
+        const reader = new FileReader();
+        reader.onload = async (e) => {
+            const buffer = e.target.result;
+            const view = new DataView(buffer);
+
+            try {
+                const exifData = parseExif(buffer, view);
+                if (exifData) {
+                    result.lat = exifData.lat;
+                    result.lon = exifData.lon;
+                    result.altGps = exifData.altitude;
+                    result.camera = exifData.camera;
+                }
+
+                const xmpData = parseXMP(buffer);
+                if (xmpData) {
+                    result.yaw = xmpData.yaw ?? result.yaw;
+                    result.pitch = xmpData.pitch ?? result.pitch;
+                    result.roll = xmpData.roll ?? result.roll;
+                    result.altRel = xmpData.aboveGroundAltitude ?? xmpData.relativeAltitude ?? result.altRel;
+                    result.altAbs = xmpData.absoluteAltitude ?? result.altAbs;
+                    if (result.lat === null) {
+                        result.lat = xmpData.lat;
+                        result.lon = xmpData.lon;
+                    }
+                    if (result.altGps === null) {
+                        result.altGps = xmpData.gpsAltitude;
+                    }
+                }
+            } catch (err) {
+                console.warn('Metadata extraction error:', err);
+            }
+
+            resolve(result);
+        };
+
+        reader.readAsArrayBuffer(file);
+    });
+}
+
+function parseExif(buffer, view) {
+    const result = { lat: null, lon: null, altitude: null, camera: null };
+
+    if (view.getUint16(0) !== 0xFFD8) return result;
+
+    let offset = 2;
+    while (offset < buffer.byteLength - 4) {
+        const marker = view.getUint16(offset);
+
+        if (marker === 0xFFE1) {
+            const length = view.getUint16(offset + 2);
+            const exifIdent = getString(view, offset + 4, 4);
+
+            if (exifIdent === 'Exif') {
+                const tiffStart = offset + 10;
+                const byteOrder = view.getUint16(tiffStart);
+                const littleEndian = (byteOrder === 0x4949);
+
+                const ifd0Offset = view.getUint32(tiffStart + 4, littleEndian);
+                const ifd0Data = parseIFD(view, tiffStart, ifd0Offset, littleEndian);
+
+                if (ifd0Data[0x010F]) result.camera = ifd0Data[0x010F];
+                if (ifd0Data[0x0110]) result.camera = (result.camera ? result.camera + ' ' : '') + ifd0Data[0x0110];
+
+                if (ifd0Data[0x8825]) {
+                    const gpsOffset = ifd0Data[0x8825];
+                    const gpsData = parseIFD(view, tiffStart, gpsOffset, littleEndian);
+
+                    if (gpsData[0x0002] && gpsData[0x0001]) {
+                        const latVals = gpsData[0x0002];
+                        result.lat = latVals[0] + latVals[1]/60 + latVals[2]/3600;
+                        if (gpsData[0x0001] === 'S') result.lat *= -1;
+                    }
+
+                    if (gpsData[0x0004] && gpsData[0x0003]) {
+                        const lonVals = gpsData[0x0004];
+                        result.lon = lonVals[0] + lonVals[1]/60 + lonVals[2]/3600;
+                        if (gpsData[0x0003] === 'W') result.lon *= -1;
+                    }
+
+                    if (gpsData[0x0006] !== undefined) {
+                        result.altitude = gpsData[0x0006];
+                        if (gpsData[0x0005] === 1) result.altitude *= -1;
+                    }
+                }
+            }
+
+            offset += 2 + length;
+        } else if ((marker & 0xFF00) === 0xFF00) {
+            if (marker === 0xFFD9 || marker === 0xFFDA) break;
+            const length = view.getUint16(offset + 2);
+            offset += 2 + length;
+        } else {
+            offset++;
+        }
+    }
+
+    return result;
+}
+
+function parseIFD(view, tiffStart, ifdOffset, littleEndian) {
+    const data = {};
+    const absOffset = tiffStart + ifdOffset;
+
+    if (absOffset + 2 > view.byteLength) return data;
+
+    const numEntries = view.getUint16(absOffset, littleEndian);
+
+    for (let i = 0; i < numEntries; i++) {
+        const entryOffset = absOffset + 2 + (i * 12);
+        if (entryOffset + 12 > view.byteLength) break;
+
+        const tag = view.getUint16(entryOffset, littleEndian);
+        const type = view.getUint16(entryOffset + 2, littleEndian);
+        const count = view.getUint32(entryOffset + 4, littleEndian);
+        const valueOffset = entryOffset + 8;
+
+        try {
+            data[tag] = readTagValue(view, tiffStart, valueOffset, type, count, littleEndian);
+        } catch (e) {}
+    }
+
+    return data;
+}
+
+function readTagValue(view, tiffStart, valueOffset, type, count, littleEndian) {
+    const typeSize = [0, 1, 1, 2, 4, 8, 1, 1, 2, 4, 8, 4, 8];
+    const size = typeSize[type] * count;
+
+    let dataOffset = valueOffset;
+    if (size > 4) {
+        dataOffset = tiffStart + view.getUint32(valueOffset, littleEndian);
+    }
+
+    if (dataOffset + size > view.byteLength) return null;
+
+    switch (type) {
+        case 1: case 7: return view.getUint8(dataOffset);
+        case 2: return getString(view, dataOffset, count - 1);
+        case 3:
+            if (count === 1) return view.getUint16(dataOffset, littleEndian);
+            const shorts = [];
+            for (let i = 0; i < count; i++) shorts.push(view.getUint16(dataOffset + i*2, littleEndian));
+            return shorts;
+        case 4:
+            if (count === 1) return view.getUint32(dataOffset, littleEndian);
+            const longs = [];
+            for (let i = 0; i < count; i++) longs.push(view.getUint32(dataOffset + i*4, littleEndian));
+            return longs;
+        case 5:
+            if (count === 1) {
+                const num = view.getUint32(dataOffset, littleEndian);
+                const den = view.getUint32(dataOffset + 4, littleEndian);
+                return den ? num / den : 0;
+            }
+            const rationals = [];
+            for (let i = 0; i < count; i++) {
+                const num = view.getUint32(dataOffset + i*8, littleEndian);
+                const den = view.getUint32(dataOffset + i*8 + 4, littleEndian);
+                rationals.push(den ? num / den : 0);
+            }
+            return rationals;
+        case 10:
+            if (count === 1) {
+                const num = view.getInt32(dataOffset, littleEndian);
+                const den = view.getInt32(dataOffset + 4, littleEndian);
+                return den ? num / den : 0;
+            }
+            const srationals = [];
+            for (let i = 0; i < count; i++) {
+                const num = view.getInt32(dataOffset + i*8, littleEndian);
+                const den = view.getInt32(dataOffset + i*8 + 4, littleEndian);
+                srationals.push(den ? num / den : 0);
+            }
+            return srationals;
+        default: return null;
+    }
+}
+
+function getString(view, offset, length) {
+    let str = '';
+    for (let i = 0; i < length; i++) {
+        const c = view.getUint8(offset + i);
+        if (c === 0) break;
+        str += String.fromCharCode(c);
+    }
+    return str.trim();
+}
+
+function parseXMP(buffer) {
+    const result = {
+        yaw: null, pitch: null, roll: null,
+        relativeAltitude: null, absoluteAltitude: null, gpsAltitude: null,
+        aboveGroundAltitude: null,
+        lat: null, lon: null
+    };
+
+    const text = new TextDecoder('iso-8859-1').decode(buffer);
+
+    let xmpStart = text.indexOf('<?xpacket begin');
+    let xmpEnd = text.indexOf('<?xpacket end');
+
+    if (xmpStart === -1) {
+        xmpStart = text.indexOf('<x:xmpmeta');
+        xmpEnd = text.indexOf('</x:xmpmeta>');
+    }
+    if (xmpStart === -1) {
+        xmpStart = text.indexOf('<rdf:RDF');
+        xmpEnd = text.indexOf('</rdf:RDF>');
+    }
+
+    const searchText = xmpStart !== -1 ? text.substring(xmpStart, xmpEnd + 20) : text;
+
+    const tagPatterns = {
+        yaw: [
+            /drone-parrot:CameraYawDegree>([+-]?\d+\.?\d*)</i,
+            /drone-dji:GimbalYawDegree="([+-]?\d+\.?\d*)"/i,
+            /drone-dji:FlightYawDegree="([+-]?\d+\.?\d*)"/i,
+            /GimbalYawDegree="([+-]?\d+\.?\d*)"/i,
+            /<Camera:Yaw>([+-]?\d+\.?\d*)<\/Camera:Yaw>/i,
+            /Camera:Yaw="([+-]?\d+\.?\d*)"/i
+        ],
+        pitch: [
+            /drone-parrot:CameraPitchDegree>([+-]?\d+\.?\d*)</i,
+            /drone-dji:GimbalPitchDegree="([+-]?\d+\.?\d*)"/i,
+            /drone-dji:FlightPitchDegree="([+-]?\d+\.?\d*)"/i,
+            /GimbalPitchDegree="([+-]?\d+\.?\d*)"/i,
+            /<Camera:Pitch>([+-]?\d+\.?\d*)<\/Camera:Pitch>/i,
+            /Camera:Pitch="([+-]?\d+\.?\d*)"/i
+        ],
+        roll: [
+            /drone-parrot:CameraRollDegree>([+-]?\d+\.?\d*)</i,
+            /drone-dji:GimbalRollDegree="([+-]?\d+\.?\d*)"/i,
+            /drone-dji:FlightRollDegree="([+-]?\d+\.?\d*)"/i,
+            /GimbalRollDegree="([+-]?\d+\.?\d*)"/i,
+            /<Camera:Roll>([+-]?\d+\.?\d*)<\/Camera:Roll>/i,
+            /Camera:Roll="([+-]?\d+\.?\d*)"/i
+        ],
+        relativeAltitude: [
+            /drone-parrot:RelativeAltitude>([+-]?\d+\.?\d*)</i,
+            /RelativeAltitude="([+-]?\d+\.?\d*)"/i,
+            /<[^>]*RelativeAltitude>([+-]?\d+\.?\d*)</i
+        ],
+        aboveGroundAltitude: [
+            /<Camera:AboveGroundAltitude>(\d+)\/(\d+)<\/Camera:AboveGroundAltitude>/i,
+            /Camera:AboveGroundAltitude="([+-]?\d+\.?\d*)"/i,
+            /AboveGroundAltitude>([+-]?\d+\.?\d*)</i
+        ],
+        absoluteAltitude: [
+            /AbsoluteAltitude="([+-]?\d+\.?\d*)"/i,
+            /<[^>]*AbsoluteAltitude>([+-]?\d+\.?\d*)</i
+        ],
+        gpsAltitude: [
+            /GpsAltitude="([+-]?\d+\.?\d*)"/i,
+            /GPSAltitude="([+-]?\d+\.?\d*)"/i
+        ]
+    };
+
+    for (const [key, patterns] of Object.entries(tagPatterns)) {
+        for (const pattern of patterns) {
+            const match = searchText.match(pattern);
+            if (match) {
+                if (key === 'aboveGroundAltitude' && match[2]) {
+                    result[key] = parseFloat(match[1]) / parseFloat(match[2]);
+                } else {
+                    result[key] = parseFloat(match[1]);
+                }
+                break;
+            }
+        }
+    }
+
+    return result;
+}
+
+async function loadLAS(file) {
+    toggleLoading(true, "PARSING LAS...");
+    setMode('3d');
+
+    await new Promise(r => setTimeout(r, 100));
+
+    try {
+        const buffer = await file.arrayBuffer();
+        const view = new DataView(buffer);
+
+        const signature = String.fromCharCode(view.getUint8(0), view.getUint8(1), view.getUint8(2), view.getUint8(3));
+        if (signature !== "LASF") throw new Error("Not a valid LAS file.");
+
+        const versionMajor = view.getUint8(24);
+        const versionMinor = view.getUint8(25);
+        const offsetToPoints = view.getUint32(96, true);
+        const pointFormat = view.getUint8(104);
+        const pointLen = view.getUint16(105, true);
+
+        let count;
+        if (versionMajor === 1 && versionMinor >= 4) {
+            count = Number(view.getBigUint64(247, true));
+        } else {
+            count = view.getUint32(107, true);
+        }
+
+        const scaleX = view.getFloat64(131, true);
+        const scaleY = view.getFloat64(139, true);
+        const scaleZ = view.getFloat64(147, true);
+        const offsetX = view.getFloat64(155, true);
+        const offsetY = view.getFloat64(163, true);
+        const offsetZ = view.getFloat64(171, true);
+
+        const boundMinX = view.getFloat64(179, true);
+        const boundMaxX = view.getFloat64(187, true);
+        const boundMinY = view.getFloat64(195, true);
+        const boundMaxY = view.getFloat64(203, true);
+        const boundMinZ = view.getFloat64(211, true);
+        const boundMaxZ = view.getFloat64(219, true);
+
+        const minX = Math.min(boundMinX, boundMaxX);
+        const maxX = Math.max(boundMinX, boundMaxX);
+        const minY = Math.min(boundMinY, boundMaxY);
+        const maxY = Math.max(boundMinY, boundMaxY);
+        const minZ = Math.min(boundMinZ, boundMaxZ);
+        const maxZ = Math.max(boundMinZ, boundMaxZ);
+
+        const formatInfo = {
+            0: { size: 20, rgbOffset: -1 },
+            1: { size: 28, rgbOffset: -1 },
+            2: { size: 26, rgbOffset: 20 },
+            3: { size: 34, rgbOffset: 28 },
+            4: { size: 57, rgbOffset: -1 },
+            5: { size: 63, rgbOffset: 28 },
+            6: { size: 30, rgbOffset: -1 },
+            7: { size: 36, rgbOffset: 30 },
+            8: { size: 38, rgbOffset: 30 },
+            9: { size: 59, rgbOffset: -1 },
+            10: { size: 67, rgbOffset: 30 }
+        };
+
+        const hasRGB = formatInfo[pointFormat]?.rgbOffset >= 0;
+        const rgbOffset = formatInfo[pointFormat]?.rgbOffset || -1;
+        const intensityOffset = 12;
+
+        document.getElementById('las-info').style.display = 'block';
+        document.getElementById('las-format').textContent = `${versionMajor}.${versionMinor} / Format ${pointFormat}`;
+        document.getElementById('las-points').textContent = count.toLocaleString();
+        document.getElementById('las-rgb').textContent = hasRGB ? 'Yes' : 'No (using intensity/height)';
+        document.getElementById('las-bounds-x').textContent = `${minX.toFixed(1)} - ${maxX.toFixed(1)}`;
+        document.getElementById('las-bounds-y').textContent = `${minY.toFixed(1)} - ${maxY.toFixed(1)}`;
+        document.getElementById('las-bounds-z').textContent = `${minZ.toFixed(1)} - ${maxZ.toFixed(1)}`;
+
+        const centerX = (minX + maxX) / 2;
+        const centerY = (minY + maxY) / 2;
+
+        STATE.las = {
+            loaded: true,
+            minX, maxX, minY, maxY, minZ, maxZ,
+            centerX, centerY,
+            offsetX, offsetY, offsetZ,
+            scaleX, scaleY, scaleZ,
+            originLat: null,
+            originLon: null,
+            originAlt: null
+        };
+
+        const maxPoints = 3000000;
+        const step = count > maxPoints ? Math.ceil(count / maxPoints) : 1;
+
+        toggleLoading(true, `LOADING ${Math.min(count, maxPoints).toLocaleString()} POINTS...`);
+        await new Promise(r => setTimeout(r, 50));
+
+        const positions = [];
+        const colors = [];
+
+        let minIntensity = Infinity, maxIntensity = -Infinity;
+
+        if (!hasRGB) {
+            for (let i = 0; i < Math.min(count, 10000); i += step) {
+                const pOff = offsetToPoints + (i * pointLen);
+                if (pOff + 14 > buffer.byteLength) break;
+                const intensity = view.getUint16(pOff + intensityOffset, true);
+                minIntensity = Math.min(minIntensity, intensity);
+                maxIntensity = Math.max(maxIntensity, intensity);
+            }
+        }
+
+        for (let i = 0; i < count; i += step) {
+            const pOff = offsetToPoints + (i * pointLen);
+            if (pOff + 12 > buffer.byteLength) break;
+
+            const rawX = view.getInt32(pOff, true);
+            const rawY = view.getInt32(pOff + 4, true);
+            const rawZ = view.getInt32(pOff + 8, true);
+
+            const worldX = rawX * scaleX + offsetX;
+            const worldY = rawY * scaleY + offsetY;
+            const worldZ = rawZ * scaleZ + offsetZ;
+
+            const x = worldX - centerX;
+            const y = worldY - centerY;
+            const z = worldZ - minZ;
+
+            positions.push(x, z, -y);
+
+            if (hasRGB && pOff + rgbOffset + 6 <= buffer.byteLength) {
+                let r = view.getUint16(pOff + rgbOffset, true);
+                let g = view.getUint16(pOff + rgbOffset + 2, true);
+                let b = view.getUint16(pOff + rgbOffset + 4, true);
+
+                if (r <= 255 && g <= 255 && b <= 255) {
+                    r /= 255;
+                    g /= 255;
+                    b /= 255;
+                } else {
+                    r /= 65535;
+                    g /= 65535;
+                    b /= 65535;
+                }
+
+                colors.push(r, g, b);
+            } else {
+                const normalizedZ = z / (maxZ - minZ);
+                const h = Math.max(0, Math.min(1, normalizedZ));
+
+                if (h < 0.3) {
+                    colors.push(0.4 + h, 0.35 + h * 0.5, 0.2);
+                } else if (h < 0.7) {
+                    colors.push(0.5, 0.5 + (h - 0.3) * 0.5, 0.4);
+                } else {
+                    colors.push(0.6 + (h - 0.7) * 0.4, 0.7 + (h - 0.7) * 0.3, 0.7 + (h - 0.7) * 0.3);
+                }
+            }
+        }
+
+        STATE.pointColors = new Float32Array(colors);
+        STATE.originalColors = new Float32Array(colors);
+
+        const geometry = new THREE.BufferGeometry();
+        geometry.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
+        geometry.setAttribute('color', new THREE.Float32BufferAttribute(colors, 3));
+
+        const material = new THREE.PointsMaterial({
+            size: parseFloat(document.getElementById('point-size').value),
+            vertexColors: true,
+            sizeAttenuation: true
+        });
+
+        if (cloudPoints) {
+            scene.remove(cloudPoints);
+            cloudPoints.geometry.dispose();
+            cloudPoints.material.dispose();
+        }
+        cloudPoints = new THREE.Points(geometry, material);
+        scene.add(cloudPoints);
+
+        const sizeX = maxX - minX;
+        const sizeY = maxY - minY;
+        const sizeZ = maxZ - minZ;
+        const maxSize = Math.max(sizeX, sizeY, sizeZ);
+        const groundSize = Math.max(sizeX, sizeY);
+
+        if (gridHelper) scene.remove(gridHelper);
+        gridHelper = new THREE.GridHelper(groundSize, 20, 0x444444, 0x222222);
+        gridHelper.position.set(0, 0, 0);
+        gridHelper.visible = document.getElementById('chk-grid')?.checked ?? false;
+        scene.add(gridHelper);
+
+        axesHelper.position.set(0, 0, 0);
+        axesHelper.scale.setScalar(maxSize * 0.1);
+
+        controls.target.set(0, sizeZ / 2, 0);
+        camera.position.set(maxSize * 0.8, sizeZ + maxSize * 0.3, maxSize * 0.8);
+        controls.update();
+
+        document.getElementById('drop-las').classList.add('loaded');
+        document.querySelector('#drop-las p').innerText = `${(positions.length/3).toLocaleString()} POINTS LOADED`;
+        document.getElementById('render-controls').style.display = 'block';
+
+        const posAttr = cloudPoints.geometry.getAttribute('position');
+        let minPosY = Infinity;
+        for (let i = 0; i < posAttr.count; i++) {
+            const y = posAttr.getY(i);
+            minPosY = Math.min(minPosY, y);
+        }
+
+        gridHelper.position.y = minPosY;
+
+    } catch (err) {
+        console.error(err);
+        alert("Failed to load LAS: " + err.message);
+    }
+    toggleLoading(false);
+}
+
+async function handleMediaDrop(fileList) {
+    toggleLoading(true, `SCANNING ${fileList.length} FILES...`);
+
+    STATE.fileUrls.forEach(url => URL.revokeObjectURL(url));
+
+    STATE.files = Array.from(fileList);
+    STATE.meta = [];
+    STATE.fileUrls = [];
+    STATE.selectedIndices.clear();
+    const list = document.getElementById('file-list');
+    list.innerHTML = '';
+
+    for (let i = 0; i < STATE.files.length; i++) {
+        const f = STATE.files[i];
+        toggleLoading(true, `READING ${i+1}/${STATE.files.length}: ${f.name}`);
+        const meta = await extractMetadata(f);
+        STATE.meta.push(meta);
+
+        STATE.fileUrls.push(URL.createObjectURL(f));
+
+        if (STATE.las.loaded && STATE.las.originLat === null && meta.lat !== null) {
+            STATE.las.originLat = meta.lat;
+            STATE.las.originLon = meta.lon;
+            STATE.las.originAlt = meta.altGps || meta.altRel || 0;
+        }
+
+        const li = document.createElement('li');
+
+        const checkbox = document.createElement('input');
+        checkbox.type = 'checkbox';
+        checkbox.dataset.index = i;
+        checkbox.onclick = (e) => {
+            e.stopPropagation();
+            toggleImageSelection(i, checkbox.checked);
+        };
+
+        const filenameSpan = document.createElement('span');
+        filenameSpan.className = 'filename';
+        filenameSpan.textContent = f.name;
+
+        li.appendChild(checkbox);
+        li.appendChild(filenameSpan);
+        li.onclick = (e) => {
+            if (e.target !== checkbox) {
+                selectSingleFile(i);
+            }
+        };
+        list.appendChild(li);
+    }
+
+    if (STATE.files.length > 0) {
+        document.getElementById('select-all-container').style.display = 'block';
+        selectSingleFile(0);
+    }
+
+    updateSelectedCount();
+    toggleLoading(false);
+}
+
+function toggleImageSelection(idx, isSelected) {
+    if (isSelected) {
+        STATE.selectedIndices.add(idx);
+    } else {
+        STATE.selectedIndices.delete(idx);
+    }
+    updateSelectedCount();
+    updateAllCameraMarkers();
+    updateMapMarkers();
+}
+
+function selectSingleFile(idx) {
+    STATE.selectedIndices.clear();
+    STATE.selectedIndices.add(idx);
+
+    document.querySelectorAll('#file-list input[type="checkbox"]').forEach((cb, i) => {
+        cb.checked = (i === idx);
+    });
+
+    document.querySelectorAll('#file-list li').forEach((li, i) => {
+        li.className = (i === idx) ? 'selected' : '';
+    });
+
+    STATE.currentIdx = idx;
+    updateSelectedCount();
+
+    showFileDetails(idx);
+    updateAllCameraMarkers();
+}
+
+function selectAllFiles() {
+    STATE.selectedIndices.clear();
+    for (let i = 0; i < STATE.files.length; i++) {
+        STATE.selectedIndices.add(i);
+    }
+    document.querySelectorAll('#file-list input[type="checkbox"]').forEach(cb => {
+        cb.checked = true;
+    });
+    updateSelectedCount();
+    updateAllCameraMarkers();
+    updateMapMarkers();
+}
+
+function selectNoFiles() {
+    STATE.selectedIndices.clear();
+    document.querySelectorAll('#file-list input[type="checkbox"]').forEach(cb => {
+        cb.checked = false;
+    });
+    updateSelectedCount();
+    updateAllCameraMarkers();
+    updateMapMarkers();
+}
+
+function updateSelectedCount() {
+    const count = STATE.selectedIndices.size;
+    document.getElementById('selected-count').textContent = `${count} selected`;
+}
+
+function showFileDetails(idx) {
+    const file = STATE.files[idx];
+    const meta = STATE.meta[idx];
+
+    document.getElementById('data-panel').style.display = 'block';
+    document.getElementById('val-name').textContent = file.name;
+    document.getElementById('val-gps').textContent = meta.lat !== null
+        ? `${meta.lat.toFixed(6)}, ${meta.lon.toFixed(6)}` : 'No GPS';
+    document.getElementById('val-alt-gps').textContent = meta.altGps !== null
+        ? `${meta.altGps.toFixed(1)} m` : 'N/A';
+    const relAlt = meta.altRel ?? meta.altAbs;
+    document.getElementById('val-alt-rel').textContent = relAlt !== null
+        ? `${relAlt.toFixed(1)} m` : 'N/A';
+    document.getElementById('val-yaw').textContent = meta.yaw !== null
+        ? `${meta.yaw.toFixed(1)}°` : 'N/A';
+    document.getElementById('val-pitch').textContent = meta.pitch !== null
+        ? `${meta.pitch.toFixed(1)}°` : 'N/A';
+    document.getElementById('val-roll').textContent = meta.roll !== null
+        ? `${meta.roll.toFixed(1)}°` : 'N/A';
+    document.getElementById('val-camera').textContent = meta.camera || 'Unknown';
+
+    const isVid = file.name.match(/\.(mp4|mov)$/i);
+    const url = URL.createObjectURL(file);
+    const box = document.getElementById('preview-box');
+    const img = document.getElementById('preview-img');
+    const vid = document.getElementById('preview-vid');
+
+    box.style.display = 'flex';
+    if (isVid) {
+        img.style.display = 'none'; vid.style.display = 'block'; vid.src = url;
+    } else {
+        vid.style.display = 'none'; img.style.display = 'block'; img.src = url;
+    }
+
+    updateMapMarkers();
+}
+
+window.selectFile = (idx) => {
+    selectSingleFile(idx);
+};
+
+function updateAllCameraMarkers() {
+    if (!scene || !STATE.las.loaded) return;
+
+    const showCamera = document.getElementById('chk-camera')?.checked ?? true;
+    const markerSize = parseFloat(document.getElementById('cam-size')?.value || 5);
+
+    STATE.cameraMarkers.forEach(marker => {
+        scene.remove(marker);
+        marker.traverse(child => {
+            if (child.geometry) child.geometry.dispose();
+            if (child.material) child.material.dispose();
+        });
+    });
+    STATE.cameraMarkers = [];
+
+    if (camCone) camCone.visible = false;
+
+    if (!showCamera) return;
+
+    STATE.selectedIndices.forEach(idx => {
+        const meta = STATE.meta[idx];
+        if (!meta || meta.lat === null) return;
+
+        const marker = createCameraMarkerForMeta(meta, markerSize, idx === STATE.currentIdx, idx);
+        if (marker) {
+            STATE.cameraMarkers.push(marker);
+            scene.add(marker);
+        }
+    });
+
+    updateFOVCones();
+}
+
+function updateFOVCones() {
+    STATE.fovCones.forEach(cone => {
+        scene.remove(cone);
+        cone.traverse(child => {
+            if (child.geometry) child.geometry.dispose();
+            if (child.material) child.material.dispose();
+        });
+    });
+    STATE.fovCones = [];
+
+    const showFOV = document.getElementById('chk-fov-cone')?.checked ?? false;
+    if (!showFOV || !scene) return;
+
+    const distance = parseFloat(document.getElementById('fov-distance')?.value || 50);
+
+    STATE.selectedIndices.forEach(idx => {
+        const meta = STATE.meta[idx];
+        if (!meta || meta.lat === null) return;
+
+        const cone = createFOVCone(meta, distance, idx === STATE.currentIdx);
+        if (cone) {
+            STATE.fovCones.push(cone);
+            scene.add(cone);
+        }
+    });
+
+    updateFOVHighlighting();
+}
+
+function createFOVCone(meta, distance, isHighlighted) {
+    if (!STATE.las.loaded) return null;
+
+    const hfovRad = THREE.MathUtils.degToRad(STATE.fov.hfov / 2);
+    const vfovRad = THREE.MathUtils.degToRad(STATE.fov.vfov / 2);
+
+    const halfWidth = distance * Math.tan(hfovRad);
+    const halfHeight = distance * Math.tan(vfovRad);
+
+    const geometry = new THREE.BufferGeometry();
+
+    const vertices = new Float32Array([
+        0, 0, 0,
+        -halfWidth, -halfHeight, distance,
+         halfWidth, -halfHeight, distance,
+         halfWidth,  halfHeight, distance,
+        -halfWidth,  halfHeight, distance
+    ]);
+
+    const indices = [
+        0, 1, 2,
+        0, 2, 3,
+        0, 3, 4,
+        0, 4, 1,
+        1, 3, 2,
+        1, 4, 3
+    ];
+
+    geometry.setAttribute('position', new THREE.BufferAttribute(vertices, 3));
+    geometry.setIndex(indices);
+    geometry.computeVertexNormals();
+
+    const material = new THREE.MeshBasicMaterial({
+        color: 0x4287f5,
+        transparent: true,
+        opacity: 0.05,
+        side: THREE.DoubleSide,
+        depthWrite: false
+    });
+
+    const frustum = new THREE.Mesh(geometry, material);
+
+    const edgeVertices = [
+        0, 0, 0, -halfWidth, -halfHeight, distance,
+        0, 0, 0,  halfWidth, -halfHeight, distance,
+        0, 0, 0,  halfWidth,  halfHeight, distance,
+        0, 0, 0, -halfWidth,  halfHeight, distance,
+        -halfWidth, -halfHeight, distance,  halfWidth, -halfHeight, distance,
+         halfWidth, -halfHeight, distance,  halfWidth,  halfHeight, distance,
+         halfWidth,  halfHeight, distance, -halfWidth,  halfHeight, distance,
+        -halfWidth,  halfHeight, distance, -halfWidth, -halfHeight, distance
+    ];
+
+    const wireGeo = new THREE.BufferGeometry();
+    wireGeo.setAttribute('position', new THREE.Float32BufferAttribute(edgeVertices, 3));
+
+    const wireMat = new THREE.LineBasicMaterial({
+        color: 0x4287f5,
+        transparent: true,
+        opacity: 0.6
+    });
+    const wireframe = new THREE.LineSegments(wireGeo, wireMat);
+    frustum.add(wireframe);
+
+    const utm = latLonToUTM(meta.lat, meta.lon);
+    const localX = utm.easting - STATE.las.centerX;
+    const localY = utm.northing - STATE.las.centerY;
+
+    let height;
+    if (meta.altRel !== null && meta.altGps !== null) {
+        const groundZ_LAS = meta.altGps - meta.altRel;
+        const groundY_ThreeJS = groundZ_LAS - STATE.las.minZ;
+        height = groundY_ThreeJS + meta.altRel;
+    } else if (meta.altRel !== null) {
+        height = 60 + meta.altRel;
+    } else if (meta.altGps !== null) {
+        height = meta.altGps - STATE.las.minZ;
+    } else {
+        height = 100;
+    }
+
+    frustum.position.set(localX, height, -localY);
+
+    const yaw = meta.yaw ?? 0;
+    const pitch = meta.pitch ?? 0;
+    const roll = meta.roll ?? 0;
+
+    const yawRad = THREE.MathUtils.degToRad(180 - yaw);
+    const pitchRad = THREE.MathUtils.degToRad(-pitch);
+    const rollRad = THREE.MathUtils.degToRad(roll);
+
+    const euler = new THREE.Euler(pitchRad, yawRad, rollRad, 'YXZ');
+    frustum.setRotationFromEuler(euler);
+
+    frustum.userData = { meta, distance };
+
+    return frustum;
+}
+
+function updateFOVHighlighting() {
+    if (!cloudPoints || !STATE.originalColors) return;
+
+    const doHighlight = document.getElementById('chk-fov-highlight')?.checked ?? false;
+    const colorAttr = cloudPoints.geometry.getAttribute('color');
+    const posAttr = cloudPoints.geometry.getAttribute('position');
+
+    for (let i = 0; i < STATE.originalColors.length; i += 3) {
+        if (STATE.useWhitePoints) {
+            colorAttr.setXYZ(i / 3, 1, 1, 1);
+        } else {
+            colorAttr.setXYZ(i / 3, STATE.originalColors[i], STATE.originalColors[i+1], STATE.originalColors[i+2]);
+        }
+    }
+
+    if (!doHighlight || STATE.fovCones.length === 0) {
+        colorAttr.needsUpdate = true;
+        return;
+    }
+
+    const distance = parseFloat(document.getElementById('fov-distance')?.value || 50);
+    const hfovRad = THREE.MathUtils.degToRad(STATE.fov.hfov / 2);
+    const vfovRad = THREE.MathUtils.degToRad(STATE.fov.vfov / 2);
+
+    for (const cone of STATE.fovCones) {
+        const meta = cone.userData.meta;
+        if (!meta) continue;
+
+        const conePos = new THREE.Vector3();
+        cone.getWorldPosition(conePos);
+
+        const forward = new THREE.Vector3(0, 0, 1);
+        forward.applyQuaternion(cone.quaternion);
+
+        const up = new THREE.Vector3(0, 1, 0);
+        up.applyQuaternion(cone.quaternion);
+        const right = new THREE.Vector3().crossVectors(forward, up).normalize();
+
+        for (let i = 0; i < posAttr.count; i++) {
+            const px = posAttr.getX(i);
+            const py = posAttr.getY(i);
+            const pz = posAttr.getZ(i);
+
+            const toPoint = new THREE.Vector3(px - conePos.x, py - conePos.y, pz - conePos.z);
+            const dist = toPoint.length();
+
+            if (dist > distance || dist < 0.1) continue;
+
+            const forwardDist = toPoint.dot(forward);
+            if (forwardDist < 0) continue;
+
+            const rightDist = toPoint.dot(right);
+            const upDist = toPoint.dot(up);
+
+            const hAngle = Math.abs(Math.atan2(rightDist, forwardDist));
+            const vAngle = Math.abs(Math.atan2(upDist, forwardDist));
+
+            if (hAngle <= hfovRad && vAngle <= vfovRad) {
+                colorAttr.setXYZ(i, 1, 0.2, 0.2);
+            }
+        }
+    }
+
+    colorAttr.needsUpdate = true;
+}
+
+function createCameraMarkerForMeta(meta, size, isHighlighted, fileIndex) {
+    if (meta.lat === null || !STATE.las.loaded) return null;
+
+    const group = new THREE.Group();
+    group.userData.fileIndex = fileIndex;
+
+    const headColor = isHighlighted ? 0xff0000 : 0xff6600;
+    const shaftColor = isHighlighted ? 0x00e676 : 0x00aa55;
+    const sphereColor = isHighlighted ? 0xffff00 : 0xffaa00;
+
+    const headGeo = new THREE.ConeGeometry(size * 0.5, size * 1.5, 8);
+    const headMat = new THREE.MeshBasicMaterial({ color: headColor });
+    const head = new THREE.Mesh(headGeo, headMat);
+    head.rotation.x = Math.PI / 2;
+    head.position.z = -size * 0.75;
+    group.add(head);
+
+    const shaftGeo = new THREE.CylinderGeometry(size * 0.15, size * 0.15, size * 3, 8);
+    const shaftMat = new THREE.MeshBasicMaterial({ color: shaftColor });
+    const shaft = new THREE.Mesh(shaftGeo, shaftMat);
+    shaft.rotation.x = Math.PI / 2;
+    shaft.position.z = -size * 1.5 - size * 0.75;
+    group.add(shaft);
+
+    const sphereGeo = new THREE.SphereGeometry(size * 0.3, 12, 12);
+    const sphereMat = new THREE.MeshBasicMaterial({ color: sphereColor });
+    const sphere = new THREE.Mesh(sphereGeo, sphereMat);
+    group.add(sphere);
+
+    const utm = latLonToUTM(meta.lat, meta.lon);
+    const localX = utm.easting - STATE.las.centerX;
+    const localY = utm.northing - STATE.las.centerY;
+
+    let height;
+    if (meta.altRel !== null && meta.altGps !== null) {
+        const groundZ_LAS = meta.altGps - meta.altRel;
+        const groundY_ThreeJS = groundZ_LAS - STATE.las.minZ;
+        height = groundY_ThreeJS + meta.altRel;
+    } else if (meta.altRel !== null) {
+        height = 60 + meta.altRel;
+    } else if (meta.altGps !== null) {
+        height = meta.altGps - STATE.las.minZ;
+    } else {
+        height = 100;
+    }
+
+    group.position.set(localX, height, -localY);
+
+    const yaw = meta.yaw ?? 0;
+    const pitch = meta.pitch ?? 0;
+    const roll = meta.roll ?? 0;
+
+    const yawRad = THREE.MathUtils.degToRad(180 - yaw);
+    const pitchRad = THREE.MathUtils.degToRad(-pitch);
+    const rollRad = THREE.MathUtils.degToRad(roll);
+
+    const euler = new THREE.Euler(pitchRad, yawRad, rollRad, 'YXZ');
+    group.setRotationFromEuler(euler);
+
+    return group;
+}
+
+function latLonToUTM(lat, lon) {
+    const latRad = lat * Math.PI / 180;
+    const lonRad = lon * Math.PI / 180;
+
+    const zone = Math.floor((lon + 180) / 6) + 1;
+    const lon0 = ((zone - 1) * 6 - 180 + 3) * Math.PI / 180;
+
+    const a = 6378137;
+    const f = 1 / 298.257223563;
+    const k0 = 0.9996;
+    const e2 = 2 * f - f * f;
+    const ep2 = e2 / (1 - e2);
+
+    const N = a / Math.sqrt(1 - e2 * Math.sin(latRad) * Math.sin(latRad));
+    const T = Math.tan(latRad) * Math.tan(latRad);
+    const C = ep2 * Math.cos(latRad) * Math.cos(latRad);
+    const A = Math.cos(latRad) * (lonRad - lon0);
+
+    const M = a * ((1 - e2/4 - 3*e2*e2/64 - 5*e2*e2*e2/256) * latRad
+                 - (3*e2/8 + 3*e2*e2/32 + 45*e2*e2*e2/1024) * Math.sin(2*latRad)
+                 + (15*e2*e2/256 + 45*e2*e2*e2/1024) * Math.sin(4*latRad)
+                 - (35*e2*e2*e2/3072) * Math.sin(6*latRad));
+
+    const easting = k0 * N * (A + (1-T+C)*A*A*A/6
+                    + (5-18*T+T*T+72*C-58*ep2)*A*A*A*A*A/120) + 500000;
+
+    let northing = k0 * (M + N * Math.tan(latRad) * (A*A/2
+                    + (5-T+9*C+4*C*C)*A*A*A*A/24
+                    + (61-58*T+T*T+600*C-330*ep2)*A*A*A*A*A*A/720));
+
+    if (lat < 0) {
+        northing += 10000000;
+    }
+
+    return { easting, northing, zone };
+}
+
+window.setMode = (mode) => {
+    STATE.mode = mode;
+    document.getElementById('map').style.display = (mode === '2d') ? 'block' : 'none';
+    document.getElementById('view-3d').style.display = (mode === '3d') ? 'block' : 'none';
+    document.getElementById('render-controls').style.display = (mode === '3d' && cloudPoints) ? 'block' : 'none';
+
+    document.getElementById('btn-2d').className = (mode === '2d') ? 'active' : '';
+    document.getElementById('btn-3d').className = (mode === '3d') ? 'active' : '';
+
+    if(mode === '3d') {
+        init3D();
+        setTimeout(() => {
+            window.dispatchEvent(new Event('resize'));
+            updateAllCameraMarkers();
+        }, 100);
+    }
+};
+
+function toggleLoading(show, txt) {
+    const el = document.getElementById('loading');
+    el.style.display = show ? 'block' : 'none';
+    if(txt) el.textContent = txt;
+}
+
+function setupDnD(id, handler) {
+    const el = document.getElementById(id);
+    const inp = el.querySelector('input');
+
+    el.onclick = () => inp.click();
+    inp.onchange = (e) => handler(e.target.files);
+
+    el.addEventListener('dragover', (e) => { e.preventDefault(); el.classList.add('active'); });
+    el.addEventListener('dragleave', (e) => { e.preventDefault(); el.classList.remove('active'); });
+    el.addEventListener('drop', (e) => {
+        e.preventDefault();
+        el.classList.remove('active');
+        if(e.dataTransfer.files.length) handler(e.dataTransfer.files);
+    });
+}
+
+setupDnD('drop-media', handleMediaDrop);
+setupDnD('drop-las', (f) => loadLAS(f[0]));
+
+document.getElementById('btn-select-all').addEventListener('click', selectAllFiles);
+document.getElementById('btn-select-none').addEventListener('click', selectNoFiles);
+
+</script>
+</body>
+</html>
